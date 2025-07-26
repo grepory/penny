@@ -134,6 +134,37 @@ class DocumentService:
             print(f"Error searching documents: {e}")
             raise
     
+    async def delete_document(self, document_id: str) -> bool:
+        """Delete a document from both disk and ChromaDB"""
+        try:
+            # Find the document file
+            document_files = list(app_settings.DOCUMENTS_DIR.glob(f"{document_id}_*"))
+            
+            if not document_files:
+                raise FileNotFoundError(f"Document with ID {document_id} not found")
+            
+            file_path = document_files[0]
+            
+            # Delete from ChromaDB using metadata filter
+            if self.collection:
+                # Get all documents with this document_id
+                results = self.collection.get(
+                    where={"document_id": document_id}
+                )
+                
+                if results['ids']:
+                    # Delete all chunks/nodes for this document
+                    self.collection.delete(ids=results['ids'])
+            
+            # Delete the file from disk
+            file_path.unlink()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting document {document_id}: {e}")
+            raise
+
     async def get_document_count(self) -> int:
         """Get total number of indexed documents"""
         try:

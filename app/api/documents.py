@@ -79,6 +79,22 @@ async def search_documents(query: DocumentQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error searching documents: {str(e)}")
 
+@router.delete("/{document_id}")
+async def delete_document(document_id: str):
+    """
+    Delete a document by ID (removes from disk and ChromaDB)
+    """
+    try:
+        success = await document_service.delete_document(document_id)
+        if success:
+            return {"message": f"Document {document_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete document")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
+
 @router.get("")
 async def list_documents():
     """
