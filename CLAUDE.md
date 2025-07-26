@@ -29,7 +29,7 @@ app/
 Currently a skeleton project with:
 - **Backend**: FastAPI application (app/main.py) with basic Hello World endpoints
 - **Structure**: Organized directories for scalable development
-- **Documentation**: README.md describes the planned tech stack including AWS Textract, ChromaDB, SQLite, and LLM integration
+- **Documentation**: README.md describes the planned tech stack including AWS Textract or Mistral OCR, ChromaDB, SQLite, and LLM integration
 
 The planned architecture includes:
 - Python backend with SQLite for structured data storage (app/db/)
