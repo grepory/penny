@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     LLAMA_CLOUD_API_KEY: str = ""
     
+    # LLM Provider Settings
+    DEFAULT_LLM_PROVIDER: str = "openai"  # "openai" or "claude"
+    OPENAI_MODEL: str = "gpt-3.5-turbo"
+    CLAUDE_MODEL: str = "claude-3-sonnet-20240229"
+    LLM_TEMPERATURE: float = 0.1
+    LLM_MAX_TOKENS: int = 4000
+    
     class Config:
         env_file = ".env"
 

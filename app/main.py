@@ -7,6 +7,7 @@ from app.api.documents import router as documents_router
 from app.api.files import router as files_router
 from app.api.financial import router as financial_router
 from app.api.jobs import router as jobs_router
+from app.api.chat import router as chat_router
 from app.services.job_service import job_service
 
 app = FastAPI(
@@ -26,6 +27,7 @@ app.include_router(documents_router, prefix="/api/v1")
 app.include_router(files_router)
 app.include_router(financial_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
+app.include_router(chat_router)
 
 @app.get("/")
 async def root():
@@ -34,6 +36,10 @@ async def root():
 @app.get("/files", response_class=HTMLResponse)
 async def file_manager(request: Request):
     return templates.TemplateResponse("file_manager.html", {"request": request})
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_interface(request: Request):
+    return templates.TemplateResponse("chat.html", {"request": request})
 
 @app.get("/hello/{name}")
 async def say_hello(name: str):

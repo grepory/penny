@@ -323,3 +323,47 @@ class ExportResponse(BaseModel):
     file_size: int = Field(..., description="Size of exported file in bytes")
     records_exported: int = Field(..., description="Number of records exported")
     execution_time: float = Field(..., description="Export execution time in seconds")
+
+
+# WebSocket Chat Models
+class ChatMessage(BaseModel):
+    """WebSocket chat message model"""
+    type: str = Field(..., description="Message type (user_message, ai_response, error, system)")
+    content: str = Field(..., description="Message content")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Message timestamp")
+    session_id: Optional[str] = Field(None, description="Chat session ID")
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ChatRequest(BaseModel):
+    """WebSocket chat request model"""
+    message: str = Field(..., description="User's chat message/question")
+    session_id: Optional[str] = Field(None, description="Chat session ID for context")
+    context: Optional[Dict[str, Any]] = Field(None, description="Additional context")
+    llm_provider: Optional[str] = Field(None, description="LLM provider to use (openai or claude)")
+    
+    
+class ChatResponse(BaseModel):
+    """WebSocket chat response model"""
+    type: str = Field(default="ai_response", description="Response type")
+    answer: str = Field(..., description="AI response to the user's question")
+    sources: List[Dict[str, Any]] = Field(default_factory=list, description="Source documents")
+    financial_summary: Optional[Dict[str, Any]] = Field(None, description="Financial data summary")
+    llm_provider: Optional[str] = Field(None, description="LLM provider used")
+    model_used: Optional[str] = Field(None, description="Model used for generation")
+    usage: Optional[Dict[str, Any]] = Field(None, description="Token usage information")
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="Response timestamp")
+    session_id: Optional[str] = Field(None, description="Chat session ID")
+
+
+class ChatError(BaseModel):
+    """WebSocket chat error model"""
+    type: str = Field(default="error", description="Message type")
+    error: str = Field(..., description="Error message")
+    error_code: Optional[str] = Field(None, description="Error code")
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="Error timestamp")
+    session_id: Optional[str] = Field(None, description="Chat session ID")

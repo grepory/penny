@@ -7,11 +7,15 @@ import chromadb
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
+import logging
 from datetime import datetime
 
 from app.core.config import settings as app_settings
 from app.models.document import DocumentResponse, SearchResult
 from app.services.financial_parser import FinancialDocumentParser
+from app.services.llm_service import llm_service, LLMProvider
+
+logger = logging.getLogger(__name__)
 
 class DocumentService:
     def __init__(self):
@@ -20,19 +24,24 @@ class DocumentService:
         self.index = None
         self.query_engine = None
         self.financial_parser = None
+        self.llm_service = llm_service
         self._initialize_llm()
         self._initialize_chroma()
         self._initialize_financial_parser()
     
     def _initialize_llm(self):
-        """Initialize the LLM with OpenAI"""
+        """Initialize the LLM with OpenAI and LLM service"""
+        # Initialize traditional LlamaIndex LLM (still needed for query engine)
         if app_settings.OPENAI_API_KEY:
             llm = OpenAI(
                 api_key=app_settings.OPENAI_API_KEY,
-                model="gpt-3.5-turbo",
-                temperature=0.1
+                model=app_settings.OPENAI_MODEL,
+                temperature=app_settings.LLM_TEMPERATURE
             )
             Settings.llm = llm
+        
+        # Initialize our LLM service asynchronouslly later
+        # This will be done in the first query call
     
     def _initialize_chroma(self):
         """Initialize ChromaDB client and collection"""
@@ -203,18 +212,30 @@ class DocumentService:
             response = self.query_engine.query(query)
             
             results = []
+            seen_documents = set()  # Track documents we've already included
             
             # Extract source nodes from response
             if hasattr(response, 'source_nodes'):
-                for i, node in enumerate(response.source_nodes[:limit]):
+                for i, node in enumerate(response.source_nodes):
                     if hasattr(node, 'metadata') and hasattr(node, 'text') and node.text is not None:
                         metadata = node.metadata
+                        document_id = metadata.get("document_id", "unknown")
+                        
+                        # Skip if we've already included this document
+                        if document_id in seen_documents:
+                            continue
+                        
+                        seen_documents.add(document_id)
                         results.append(SearchResult(
-                            document_id=metadata.get("document_id", "unknown"),
+                            document_id=document_id,
                             filename=metadata.get("filename", "unknown"),
                             content=node.text[:500] + "..." if len(node.text) > 500 else node.text,
                             score=getattr(node, 'score', 0.0) if hasattr(node, 'score') else 1.0
                         ))
+                        
+                        # Stop when we reach the desired limit of unique documents
+                        if len(results) >= limit:
+                            break
             
             return results
             
@@ -339,85 +360,143 @@ class DocumentService:
             doc.doc_id = clean_metadata['document_id']
         return doc
     
-    async def query_financial_data(self, query: str, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Enhanced query method for financial data with natural language support"""
+    async def query_financial_data(self, 
+                                  query: str, 
+                                  filters: Optional[Dict[str, Any]] = None,
+                                  provider: Optional[LLMProvider] = None) -> Dict[str, Any]:
+        """Enhanced query method for financial data with natural language support using multiple LLM providers"""
         try:
-            if not self.query_engine:
-                return {"error": "Query engine not initialized"}
+            # Initialize LLM service if not already done
+            if not self.llm_service._initialized:
+                await self.llm_service.initialize()
             
-            # Enhanced query with financial context
+            # Get relevant documents using vector search
+            relevant_docs = []
+            sources_info = []
+            seen_sources = set()  # Track documents we've already included as sources
+            
+            if self.query_engine:
+                # Use LlamaIndex for document retrieval
+                retrieval_response = self.query_engine.query(query)
+                
+                if hasattr(retrieval_response, 'source_nodes'):
+                    for node in retrieval_response.source_nodes:
+                        if hasattr(node, 'text') and node.text is not None:
+                            relevant_docs.append(node.text)
+                            
+                            # Collect source information (deduplicated by document_id)
+                            if hasattr(node, 'metadata'):
+                                metadata = node.metadata
+                                document_id = metadata.get("document_id")
+                                
+                                # Skip if we've already included this document as a source
+                                if document_id and document_id not in seen_sources:
+                                    seen_sources.add(document_id)
+                                    content_preview = node.text[:200] + "..." if len(node.text) > 200 else node.text
+                                    
+                                    sources_info.append({
+                                        "document_id": document_id,
+                                        "filename": metadata.get("filename"),
+                                        "vendor": metadata.get("vendor_name"),
+                                        "amount": metadata.get("total_amount"),
+                                        "date": metadata.get("issue_date"),
+                                        "content_preview": content_preview
+                                    })
+            
+            # Enhanced system prompt for financial context
             financial_context = """
-            This is a financial document database containing invoices, receipts, and bills for home renovation projects.
-            When answering questions about spending, costs, or expenses, please:
+            You are a financial analysis assistant for a home renovation expense tracking system.
+            You have access to invoices, receipts, and bills for home renovation projects.
+            
+            When analyzing financial data, please:
             1. Look for specific dollar amounts and totals
-            2. Consider date ranges when asked about time periods like "this summer" or "last month"
-            3. Group expenses by categories (paint, lumber, electrical, plumbing, labor, etc.)
+            2. Consider date ranges when asked about time periods
+            3. Group expenses by categories (materials, labor, permits, etc.)
             4. Consider project associations when asked about specific renovations
-            5. Provide specific details from the documents when possible
+            5. Provide specific details and calculations when possible
+            6. If no relevant information is found, clearly state this
+            
+            Format your response to be helpful and specific, including:
+            - Direct answers to the user's question
+            - Relevant financial details from the documents
+            - Calculations or summaries when appropriate
             """
             
-            enhanced_query = f"{financial_context}\n\nUser question: {query}"
+            # Determine which provider to use
+            selected_provider = provider
+            if selected_provider is None:
+                # Use provider specified in filters, or default
+                if filters and 'llm_provider' in filters:
+                    selected_provider = LLMProvider(filters['llm_provider'])
+                else:
+                    # Use default provider from settings
+                    provider_name = app_settings.DEFAULT_LLM_PROVIDER
+                    selected_provider = LLMProvider.OPENAI if provider_name == "openai" else LLMProvider.CLAUDE
             
-            response = self.query_engine.query(enhanced_query)
+            # Generate response using selected LLM provider
+            if relevant_docs:
+                response = await self.llm_service.generate_response_with_context(
+                    query=query,
+                    context_documents=relevant_docs,
+                    system_prompt=financial_context,
+                    provider=selected_provider,
+                    temperature=app_settings.LLM_TEMPERATURE,
+                    max_tokens=app_settings.LLM_MAX_TOKENS
+                )
+            else:
+                # No relevant documents found
+                response = await self.llm_service.generate_response(
+                    query=f"No relevant financial documents were found for the query: '{query}'. Please explain this to the user and suggest they might need to upload relevant documents.",
+                    system_prompt=financial_context,
+                    provider=selected_provider,
+                    temperature=app_settings.LLM_TEMPERATURE
+                )
             
-            # Extract financial insights from response
+            # Calculate financial summary from sources
+            financial_summary = self._calculate_financial_summary(sources_info)
+            
+            # Build result
             result = {
-                "answer": str(response),
-                "sources": [],
-                "financial_summary": {}
+                "answer": response.content,
+                "sources": sources_info,
+                "financial_summary": financial_summary,
+                "llm_provider": response.provider.value,
+                "model_used": response.model,
+                "usage": response.usage
             }
-            
-            # Process source nodes for financial data
-            if hasattr(response, 'source_nodes'):
-                total_amount = 0
-                vendors = set()
-                categories = set()
-                
-                for node in response.source_nodes:
-                    if hasattr(node, 'metadata'):
-                        metadata = node.metadata
-                        
-                        # Collect financial metadata
-                        if metadata.get('total_amount'):
-                            try:
-                                amount = float(metadata['total_amount'])
-                                total_amount += amount
-                            except (ValueError, TypeError):
-                                pass
-                        
-                        if metadata.get('vendor_name'):
-                            vendors.add(metadata['vendor_name'])
-                        
-                        if metadata.get('expense_categories'):
-                            categories.update(metadata['expense_categories'])
-                        
-                        # Handle case where node.text might be None
-                        content_preview = ""
-                        if hasattr(node, 'text') and node.text is not None:
-                            content_preview = node.text[:200] + "..." if len(node.text) > 200 else node.text
-                        
-                        result["sources"].append({
-                            "document_id": metadata.get("document_id"),
-                            "filename": metadata.get("filename"),
-                            "vendor": metadata.get("vendor_name"),
-                            "amount": metadata.get("total_amount"),
-                            "date": metadata.get("issue_date"),
-                            "content_preview": content_preview
-                        })
-                
-                result["financial_summary"] = {
-                    "total_amount": total_amount,
-                    "vendor_count": len(vendors),
-                    "vendors": list(vendors),
-                    "categories": list(categories),
-                    "document_count": len(response.source_nodes)
-                }
             
             return result
             
         except Exception as e:
-            print(f"Error querying financial data: {e}")
+            logger.error(f"Error querying financial data: {e}")
             return {"error": f"Query failed: {str(e)}"}
+    
+    def _calculate_financial_summary(self, sources_info: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate financial summary from source information"""
+        total_amount = 0
+        vendors = set()
+        categories = set()
+        
+        for source in sources_info:
+            # Calculate total amount
+            if source.get('amount'):
+                try:
+                    amount = float(source['amount'])
+                    total_amount += amount
+                except (ValueError, TypeError):
+                    pass
+            
+            # Collect vendors
+            if source.get('vendor'):
+                vendors.add(source['vendor'])
+        
+        return {
+            "total_amount": total_amount,
+            "vendor_count": len(vendors),
+            "vendors": list(vendors),
+            "categories": list(categories),
+            "document_count": len(sources_info)
+        }
     
     async def get_financial_summary(self, 
                                    start_date: Optional[str] = None,
