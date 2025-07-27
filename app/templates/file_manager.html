@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Penny - File Manager</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/css/file_manager.css">
 </head>
 <body>
@@ -42,6 +43,19 @@
                 <div id="filesList" class="files-list">
                     <div class="empty-state">
                         <p>No files uploaded yet</p>
+                    </div>
+                </div>
+                
+                <!-- Processing Jobs Section -->
+                <div class="processing-jobs-section">
+                    <div class="section-header">
+                        <h3>Recent Processing Jobs</h3>
+                        <button id="refreshJobsBtn" class="btn-secondary btn-sm">Refresh</button>
+                    </div>
+                    <div id="jobsList" class="jobs-list">
+                        <div class="empty-state">
+                            <p>No processing jobs yet</p>
+                        </div>
                     </div>
                 </div>
             </div>

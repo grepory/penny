@@ -9,16 +9,18 @@ from datetime import datetime
 from app.core.config import settings
 from app.models.document import DocumentResponse, DocumentQuery, SearchResult
 from app.services.document_service import DocumentService
+from app.services.job_service import job_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 # Initialize document service
 document_service = DocumentService()
 
-@router.post("/upload", response_model=DocumentResponse)
+@router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     """
-    Upload a document and store it on disk
+    Upload a document and process it asynchronously
+    Returns job ID for tracking progress
     """
     # Validate file extension
     file_extension = Path(file.filename).suffix.lower()
@@ -56,11 +58,21 @@ async def upload_document(file: UploadFile = File(...)):
             indexed=False
         )
         
-        # Index the document
-        await document_service.index_document(document)
-        document.indexed = True
+        # Initialize job service if needed
+        if not job_service._initialized:
+            await job_service.initialize()
         
-        return document
+        # Create async processing job
+        job_id = await job_service.create_processing_job(document)
+        
+        return {
+            "message": "File uploaded successfully",
+            "document_id": document_id,
+            "job_id": job_id,
+            "filename": file.filename,
+            "file_size": len(content),
+            "status": "processing"
+        }
         
     except Exception as e:
         # Clean up file if something went wrong

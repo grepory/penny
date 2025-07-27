@@ -173,6 +173,9 @@ class DocumentService:
                             base_metadata["document_type"] = str(financial_doc.get('document_type'))
                 
                 doc.metadata.update(base_metadata)
+                
+                # Set the document ID to our custom ID to ensure consistency
+                doc.doc_id = document.id
             
             # Parse into nodes with chunking
             parser = SentenceSplitter(
@@ -204,7 +207,7 @@ class DocumentService:
             # Extract source nodes from response
             if hasattr(response, 'source_nodes'):
                 for i, node in enumerate(response.source_nodes[:limit]):
-                    if hasattr(node, 'metadata') and hasattr(node, 'text'):
+                    if hasattr(node, 'metadata') and hasattr(node, 'text') and node.text is not None:
                         metadata = node.metadata
                         results.append(SearchResult(
                             document_id=metadata.get("document_id", "unknown"),
@@ -327,10 +330,14 @@ class DocumentService:
                 # Skip complex objects
                 continue
         
-        return Document(
+        doc = Document(
             text=enhanced_content,
             metadata=clean_metadata
         )
+        # Set doc_id from metadata to ensure consistency
+        if clean_metadata.get('document_id'):
+            doc.doc_id = clean_metadata['document_id']
+        return doc
     
     async def query_financial_data(self, query: str, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Enhanced query method for financial data with natural language support"""
@@ -384,13 +391,18 @@ class DocumentService:
                         if metadata.get('expense_categories'):
                             categories.update(metadata['expense_categories'])
                         
+                        # Handle case where node.text might be None
+                        content_preview = ""
+                        if hasattr(node, 'text') and node.text is not None:
+                            content_preview = node.text[:200] + "..." if len(node.text) > 200 else node.text
+                        
                         result["sources"].append({
                             "document_id": metadata.get("document_id"),
                             "filename": metadata.get("filename"),
                             "vendor": metadata.get("vendor_name"),
                             "amount": metadata.get("total_amount"),
                             "date": metadata.get("issue_date"),
-                            "content_preview": node.text[:200] + "..." if len(node.text) > 200 else node.text
+                            "content_preview": content_preview
                         })
                 
                 result["financial_summary"] = {

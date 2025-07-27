@@ -307,3 +307,182 @@ main {
         justify-content: center;
     }
 }
+
+/* Processing Jobs Section */
+.processing-jobs-section {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h3 {
+    color: #2d3748;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.875rem;
+}
+
+.jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.job-item {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 0.2s ease;
+}
+
+.job-item:hover {
+    border-color: #cbd5e0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.job-item.completed {
+    border-left: 4px solid #48bb78;
+}
+
+.job-item.failed {
+    border-left: 4px solid #e53e3e;
+}
+
+.job-item.processing {
+    border-left: 4px solid #3182ce;
+}
+
+.job-item.pending {
+    border-left: 4px solid #ed8936;
+}
+
+.job-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.job-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.job-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.job-details h4 {
+    margin: 0 0 6px 0;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #2d3748;
+    word-break: break-all;
+}
+
+.job-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.job-status {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-pending {
+    background: #fed7d7;
+    color: #c53030;
+}
+
+.status-processing {
+    background: #bee3f8;
+    color: #2b6cb0;
+}
+
+.status-completed {
+    background: #c6f6d5;
+    color: #2f855a;
+}
+
+.status-failed {
+    background: #fed7d7;
+    color: #c53030;
+}
+
+.job-time {
+    color: #718096;
+    font-size: 0.875rem;
+}
+
+.job-progress-text {
+    color: #4a5568;
+    font-size: 0.875rem;
+    margin-bottom: 8px;
+}
+
+.job-progress-bar {
+    background: #e2e8f0;
+    border-radius: 4px;
+    height: 6px;
+    overflow: hidden;
+}
+
+.job-progress-fill {
+    background: #3182ce;
+    height: 100%;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.job-error {
+    margin-top: 8px;
+    padding: 8px;
+    background: #fed7d7;
+    color: #c53030;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+.job-error small {
+    font-size: 0.75rem;
+}
+
+/* Additional responsive adjustments for jobs */
+@media (max-width: 768px) {
+    .processing-jobs-section {
+        margin-top: 30px;
+        padding-top: 20px;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+    
+    .job-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+}

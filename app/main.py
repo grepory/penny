@@ -6,6 +6,8 @@ from fastapi import Request
 from app.api.documents import router as documents_router
 from app.api.files import router as files_router
 from app.api.financial import router as financial_router
+from app.api.jobs import router as jobs_router
+from app.services.job_service import job_service
 
 app = FastAPI(
     title="Penny - Financial Document Analysis",
@@ -23,6 +25,7 @@ templates = Jinja2Templates(directory="app/templates")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(files_router)
 app.include_router(financial_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
@@ -35,3 +38,21 @@ async def file_manager(request: Request):
 @app.get("/hello/{name}")
 async def say_hello(name: str):
     return {"message": f"Hello {name}"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on application startup"""
+    try:
+        await job_service.initialize()
+    except Exception as e:
+        print(f"Failed to initialize job service: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown"""
+    try:
+        await job_service.shutdown()
+    except Exception as e:
+        print(f"Error during shutdown: {e}")

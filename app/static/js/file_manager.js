@@ -5,6 +5,8 @@ class FileManager {
         this.browseBtn = document.getElementById('browseBtn');
         this.filesList = document.getElementById('filesList');
         this.refreshBtn = document.getElementById('refreshBtn');
+        this.refreshJobsBtn = document.getElementById('refreshJobsBtn');
+        this.jobsList = document.getElementById('jobsList');
         this.uploadProgress = document.getElementById('uploadProgress');
         this.progressFill = document.getElementById('progressFill');
         this.progressText = document.getElementById('progressText');
@@ -17,6 +19,7 @@ class FileManager {
         
         this.initEventListeners();
         this.loadFiles();
+        this.loadRecentJobs();
     }
 
     initEventListeners() {
@@ -35,8 +38,9 @@ class FileManager {
             this.fileInput.click();
         });
         
-        // Refresh button
+        // Refresh buttons
         this.refreshBtn.addEventListener('click', this.loadFiles.bind(this));
+        this.refreshJobsBtn.addEventListener('click', this.loadRecentJobs.bind(this));
         
         // Modal events
         this.confirmDelete.addEventListener('click', this.handleConfirmDelete.bind(this));
@@ -99,25 +103,35 @@ class FileManager {
         
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const progress = ((i + 1) / files.length) * 100;
             
             try {
-                await this.uploadSingleFile(file);
-                this.updateProgress(progress, `Uploaded ${i + 1}/${files.length} files`);
+                this.updateProgress(0, `Uploading "${file.name}"...`);
+                const uploadResult = await this.uploadSingleFile(file);
+                
+                // Start tracking the processing job
+                if (uploadResult.job_id) {
+                    await this.trackProcessingJob(uploadResult.job_id, file.name);
+                }
+                
+                const progress = ((i + 1) / files.length) * 100;
+                this.updateProgress(progress, `Completed ${i + 1}/${files.length} files`);
+                
             } catch (error) {
-                this.showError(`Failed to upload "${file.name}": ${error.message}`);
+                this.showError(`Failed to process "${file.name}": ${error.message}`);
             }
         }
         
         this.hideUploadProgress();
         this.loadFiles();
+        this.loadRecentJobs();
     }
 
     async uploadSingleFile(file) {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('/api/files/upload', {
+        // Use the documents endpoint for async processing
+        const response = await fetch('/api/v1/documents/upload', {
             method: 'POST',
             body: formData
         });
@@ -130,15 +144,60 @@ class FileManager {
         return response.json();
     }
 
+    async trackProcessingJob(jobId, filename) {
+        this.updateProgress(10, `Processing "${filename}" - Validating file...`);
+        
+        let completed = false;
+        let attempts = 0;
+        const maxAttempts = 120; // Max 2 minutes with 1-second intervals
+        
+        while (!completed && attempts < maxAttempts) {
+            try {
+                const response = await fetch(`/api/v1/jobs/progress/${jobId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to get job progress');
+                }
+                
+                const progress = await response.json();
+                
+                // Update progress bar
+                const progressPercent = Math.max(10, progress.progress || 0);
+                const stepText = progress.current_step || 'Processing...';
+                this.updateProgress(progressPercent, `"${filename}" - ${stepText}`);
+                
+                if (progress.completed) {
+                    completed = true;
+                    if (progress.status === 'failed') {
+                        throw new Error(progress.error_message || 'Processing failed');
+                    }
+                } else {
+                    // Wait 1 second before next poll
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                attempts++;
+                
+            } catch (error) {
+                console.error('Error tracking job progress:', error);
+                // Continue without failing the entire upload
+                break;
+            }
+        }
+        
+        if (!completed && attempts >= maxAttempts) {
+            console.warn(`Job ${jobId} tracking timed out after ${maxAttempts} attempts`);
+        }
+    }
+
     async loadFiles() {
         try {
-            const response = await fetch('/api/files');
-            if (!response.ok) throw new Error('Failed to load files');
+            const response = await fetch('/api/v1/documents');
+            if (!response.ok) throw new Error('Failed to load documents');
             
-            const files = await response.json();
-            this.renderFiles(files);
+            const documents = await response.json();
+            this.renderFiles(documents);
         } catch (error) {
-            this.showError('Failed to load files: ' + error.message);
+            this.showError('Failed to load documents: ' + error.message);
         }
     }
 
@@ -146,7 +205,7 @@ class FileManager {
         if (files.length === 0) {
             this.filesList.innerHTML = `
                 <div class="empty-state">
-                    <p>No files uploaded yet</p>
+                    <p>No documents uploaded yet</p>
                 </div>
             `;
             return;
@@ -155,16 +214,17 @@ class FileManager {
         this.filesList.innerHTML = files.map(file => `
             <div class="file-item" data-file-id="${file.id}">
                 <div class="file-info">
-                    <div class="file-icon">${this.getFileIcon(file.type)}</div>
+                    <div class="file-icon">${this.getFileIcon(this.getContentTypeFromFilename(file.filename))}</div>
                     <div class="file-details">
-                        <h4>${file.name}</h4>
+                        <h4>${file.filename}</h4>
                         <div class="file-meta">
-                            ${this.formatFileSize(file.size)} • ${this.formatDate(file.upload_date)}
+                            ${this.formatFileSize(file.file_size)} • ${this.formatDate(file.uploaded_at)}
+                            ${file.indexed ? ' • ✅ Indexed' : ' • ⏳ Processing'}
                         </div>
                     </div>
                 </div>
                 <div class="file-actions">
-                    <button class="btn-danger" onclick="fileManager.showDeleteModal('${file.id}', '${file.name}')">
+                    <button class="btn-danger" onclick="fileManager.showDeleteModal('${file.id}', '${file.filename}')">
                         Delete
                     </button>
                 </div>
@@ -176,6 +236,17 @@ class FileManager {
         if (fileType === 'application/pdf') return '📄';
         if (fileType.startsWith('image/')) return '🖼️';
         return '📎';
+    }
+
+    getContentTypeFromFilename(filename) {
+        const ext = filename.toLowerCase().split('.').pop();
+        switch (ext) {
+            case 'pdf': return 'application/pdf';
+            case 'jpg':
+            case 'jpeg': return 'image/jpeg';
+            case 'png': return 'image/png';
+            default: return 'application/octet-stream';
+        }
     }
 
     formatFileSize(bytes) {
@@ -206,7 +277,7 @@ class FileManager {
         if (!this.currentDeleteFile) return;
         
         try {
-            const response = await fetch(`/api/files/${this.currentDeleteFile.id}`, {
+            const response = await fetch(`/api/v1/documents/${this.currentDeleteFile.id}`, {
                 method: 'DELETE'
             });
             
@@ -218,7 +289,7 @@ class FileManager {
             this.hideDeleteModal();
             this.loadFiles();
         } catch (error) {
-            this.showError('Failed to delete file: ' + error.message);
+            this.showError('Failed to delete document: ' + error.message);
         }
     }
 
@@ -266,6 +337,66 @@ class FileManager {
         }, 5000);
         
         console.error(message);
+    }
+
+    async loadRecentJobs() {
+        try {
+            const response = await fetch('/api/v1/jobs/recent?limit=10');
+            if (!response.ok) throw new Error('Failed to load jobs');
+            
+            const data = await response.json();
+            this.renderJobs(data.jobs || []);
+        } catch (error) {
+            console.error('Failed to load recent jobs:', error);
+            // Don't show error to user as this is optional functionality
+        }
+    }
+
+    renderJobs(jobs) {
+        if (jobs.length === 0) {
+            this.jobsList.innerHTML = `
+                <div class="empty-state">
+                    <p>No processing jobs yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        this.jobsList.innerHTML = jobs.map(job => `
+            <div class="job-item ${job.status}" data-job-id="${job.id}">
+                <div class="job-info">
+                    <div class="job-icon">${this.getJobStatusIcon(job.status)}</div>
+                    <div class="job-details">
+                        <h4>${job.filename}</h4>
+                        <div class="job-meta">
+                            <span class="job-status status-${job.status}">${job.status.toUpperCase()}</span>
+                            <span class="job-time">${this.formatDate(job.created_at)}</span>
+                        </div>
+                        <div class="job-progress-text">${job.current_step || 'Queued'}</div>
+                        ${job.status === 'processing' ? `
+                            <div class="job-progress-bar">
+                                <div class="job-progress-fill" style="width: ${job.progress || 0}%"></div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+                ${job.error_message ? `
+                    <div class="job-error">
+                        <small>Error: ${job.error_message}</small>
+                    </div>
+                ` : ''}
+            </div>
+        `).join('');
+    }
+
+    getJobStatusIcon(status) {
+        switch (status) {
+            case 'pending': return '⏳';
+            case 'processing': return '⚙️';
+            case 'completed': return '✅';
+            case 'failed': return '❌';
+            default: return '📋';
+        }
     }
 }
 
