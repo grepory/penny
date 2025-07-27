@@ -17,8 +17,10 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 1024
     CHUNK_OVERLAP: int = 200
 
-    # OpenAI
+    # LLM API Keys
     OPENAI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    LLAMA_CLOUD_API_KEY: str = ""
     
     class Config:
         env_file = ".env"

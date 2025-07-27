@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from app.api.documents import router as documents_router
 from app.api.files import router as files_router
+from app.api.financial import router as financial_router
 
 app = FastAPI(
     title="Penny - Financial Document Analysis",
@@ -21,6 +22,7 @@ templates = Jinja2Templates(directory="app/templates")
 # Include routers
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(files_router)
+app.include_router(financial_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
